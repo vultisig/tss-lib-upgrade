@@ -1,0 +1,9 @@
+[package]
+name = "CSWrapper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cait-sith = { git = "https://github.com/cronokirby/cait-sith", features = ["k256"] }
+k256 = { version = "0.13.0", features = ["sha256", "ecdsa", "serde"], optional = false }
+tokio = { version = "1.28", features = ["full"] }
