@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Taurus/network"
 	"errors"
 
 	"github.com/taurusgroup/multi-party-sig/pkg/ecdsa"
@@ -65,21 +66,6 @@ func CMPKeygen(id party.ID, ids party.IDSlice, threshold int, n *test.Network, p
 	}
 	test.HandlerLoop(id, h, n)
 	r, err := h.Result()
-	if err != nil {
-		return nil, err
-	}
-
-	return r.(*cmp.Config), nil
-}
-
-func CMPRefresh(c *cmp.Config, n *test.Network, pl *pool.Pool) (*cmp.Config, error) {
-	hRefresh, err := protocol.NewMultiHandler(cmp.Refresh(c, pl), nil)
-	if err != nil {
-		return nil, err
-	}
-	test.HandlerLoop(c.ID, hRefresh, n)
-
-	r, err := hRefresh.Result()
 	if err != nil {
 		return nil, err
 	}

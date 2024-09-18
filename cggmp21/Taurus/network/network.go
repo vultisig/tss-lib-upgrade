@@ -1,4 +1,4 @@
-package communication
+package network
 
 import (
 	"encoding/json"
