@@ -2,9 +2,9 @@ package network
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +32,9 @@ func NewNetwork(id party.ID, address string, parties party.IDSlice, addresses ma
 		listenChannels: make(map[party.ID]chan *protocol.Message),
 		done:           make(chan struct{}),
 	}
+	for _, partyID := range parties {
+		n.listenChannels[partyID] = make(chan *protocol.Message, 1000)
+	}
 	go n.listen(address)
 	go n.connectToParties()
 	return n
@@ -56,24 +59,58 @@ func (n *Network) listen(address string) {
 }
 
 func (n *Network) handleConnection(conn net.Conn) {
-	defer conn.Close()
+	defer conn.Close() // Ensure the connection is closed when we're done
+
 	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		parts := strings.SplitN(scanner.Text(), ":", 3)
-		if len(parts) != 3 {
-			continue
+	for scanner.Scan() { // Read messages line by line
+		// Read the incoming JSON data
+		data := scanner.Bytes()
+		//fmt.Printf(" \n Received raw data \n")
+
+		// Deserialize the message
+		var msg protocol.Message
+		err := json.Unmarshal(data, &msg)
+		if err != nil {
+			fmt.Printf("Error deserializing message: %v\n", err)
+			continue // Skip this message if deserialization fails
 		}
-		from, to := party.ID(parts[0]), party.ID(parts[1])
-		msg := &protocol.Message{
-			From: from,
-			To:   to,
-			Data: []byte(parts[2]),
+
+		n.mtx.Lock() // Lock to safely access shared resources
+
+		if msg.Broadcast {
+			// Handle broadcast messages
+			//fmt.Printf("Broadcasting message from %s\n", msg.From)
+			for id, ch := range n.listenChannels {
+				if id != msg.From { // Don't send back to the sender
+					select {
+					case ch <- &msg:
+						//fmt.Printf("Broadcast message delivered to %s\n", id)
+					default:
+						fmt.Printf("Channel full, broadcast message to %s dropped\n", id)
+					}
+				}
+			}
+		} else if ch, ok := n.listenChannels[msg.To]; ok {
+			// Handle direct messages
+			fmt.Printf("Delivering message to %s: %s\n", msg.To, string(msg.Data))
+			select {
+			case ch <- &msg:
+				fmt.Printf("Message delivered to %s\n", msg.To)
+			default:
+				fmt.Printf("Channel full, message to %s dropped\n", msg.To)
+			}
+		} else {
+			fmt.Printf("No listen channel for %s\n", msg.To)
 		}
-		n.mtx.Lock()
-		if ch, ok := n.listenChannels[to]; ok {
-			ch <- msg
-		}
-		n.mtx.Unlock()
+
+		n.mtx.Unlock() // Unlock after we're done with shared resources
+
+		//fmt.Printf("Processed message from %s to %s:\n", msg.From, msg.To)
+	}
+
+	// Check for any errors that occurred during scanning
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error reading from connection: %v\n", err)
 	}
 }
 
@@ -111,14 +148,16 @@ func (n *Network) Next(id party.ID) <-chan *protocol.Message {
 	n.mtx.Lock()
 	defer n.mtx.Unlock()
 	if _, ok := n.listenChannels[id]; !ok {
+		fmt.Printf("Creating listen channel for %s\n", id)
 		n.listenChannels[id] = make(chan *protocol.Message, 100)
 	}
 	return n.listenChannels[id]
 }
 
-func (n *Network) Send(msg *protocol.Message) {
+/*func (n *Network) Send(msg *protocol.Message) {
 	n.mtx.Lock()
 	//fmt.Print(msg)
+
 	conn, ok := n.connections[msg.To] //continue here : when msg.To is empty, it means send to everyone? See original function.
 	n.mtx.Unlock()
 	if !ok {
@@ -132,6 +171,34 @@ func (n *Network) Send(msg *protocol.Message) {
 		delete(n.connections, msg.To)
 		n.mtx.Unlock()
 		go n.connectToParty(msg.To)
+	}
+}*/
+
+func (n *Network) Send(msg *protocol.Message) {
+	n.mtx.Lock()
+	defer n.mtx.Unlock()
+	//fmt.Println("\n Sending message \n", msg)
+	//fmt.Println(msg.RoundNumber)
+
+	for id, conn := range n.connections {
+		if msg.IsFor(id) && conn != nil {
+			// Serialize the entire message
+			data, err := json.Marshal(msg)
+			if err != nil {
+				fmt.Printf("Error serializing message for %s: %v\n", id, err)
+				continue
+			}
+
+			// Send the serialized message
+			fmt.Printf("Sending message to %s: \n", id)
+			fmt.Println(msg.RoundNumber)
+			_, err = conn.Write(append(data, '\n'))
+			if err != nil {
+				fmt.Printf("Error sending message to %s: %v\n", id, err)
+				delete(n.connections, id)
+				go n.connectToParty(id)
+			}
+		}
 	}
 }
 

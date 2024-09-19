@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/taurusgroup/multi-party-sig/pkg/ecdsa"
 	"github.com/taurusgroup/multi-party-sig/pkg/math/curve"
@@ -60,10 +61,32 @@ func main() {
 
 	net := network.NewNetwork(id, address, parties, addresses)
 
+	/*// Wait for all parties to connect
+	allConnected := make(chan struct{})
+	go func() {
+		for {
+			net.mtx.Lock()
+			if len(net.connections) == len(parties)-1 { // -1 because we don't connect to ourselves
+				net.mtx.Unlock()
+				close(allConnected)
+				return
+			}
+			net.mtx.Unlock()
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	fmt.Println("Waiting for all parties to connect...")
+	<-allConnected
+	fmt.Println("All parties connected. Proceeding with the protocol.")*/
+
 	fmt.Printf("Joined the network as %s\n", id)
 	fmt.Println("Type 'quit' to exit")
 	fmt.Println("Enter messages in the format: recipient message")
 
+	fmt.Println("Waiting 10 seconds before proceeding...")
+	time.Sleep(3 * time.Second)
+	fmt.Println("10 seconds have passed. Continuing with the protocol.")
 	//go receiveMessages(net, id)
 	//defer network.Done(id)
 
@@ -122,10 +145,9 @@ func receiveMessages(network *network.Network, id party.ID) {
 func HandlerLoop(id party.ID, h protocol.Handler, network *network.Network) {
 	for {
 		select {
-
 		// outgoing messages
 		case msg, ok := <-h.Listen():
-			//fmt.Print("Here is msg when received", msg)
+			//fmt.Print("Here when we have to send a msg \n ", msg)
 			if !ok {
 				<-network.Done(id)
 				// the channel was closed, indicating that the protocol is done executing.
@@ -135,6 +157,7 @@ func HandlerLoop(id party.ID, h protocol.Handler, network *network.Network) {
 
 		// incoming messages
 		case msg := <-network.Next(id):
+			fmt.Print("Here is msg when received: ", msg)
 			h.Accept(msg)
 		}
 	}
@@ -144,6 +167,7 @@ func All(id party.ID, ids party.IDSlice, threshold int, message []byte, n *netwo
 
 	//defer wg.Done()
 
+	fmt.Println("Starting CMP Keygen")
 	// CMP KEYGEN
 	keygenConfig, err := CMPKeygen(id, ids, threshold, n, pl)
 	if err != nil {
@@ -156,11 +180,15 @@ func All(id party.ID, ids party.IDSlice, threshold int, message []byte, n *netwo
 		return err
 	}
 
+	fmt.Println("Starting CMP Presign")
+
 	// CMP PRESIGN
 	preSignature, err := CMPPreSign(keygenConfig, signers, n, pl)
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("Starting CMP Presign Online")
 
 	// CMP PRESIGN ONLINE
 	err = CMPPreSignOnline(keygenConfig, preSignature, message, n, pl)
@@ -175,7 +203,9 @@ func CMPKeygen(id party.ID, ids party.IDSlice, threshold int, n *network.Network
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("Starting CMP Keygen HandlerLoop")
 	HandlerLoop(id, h, n)
+	fmt.Println("CMP Keygen HandlerLoop finished")
 	r, err := h.Result()
 	if err != nil {
 		return nil, err
