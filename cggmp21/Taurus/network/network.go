@@ -33,9 +33,11 @@ func NewNetwork(id party.ID, address string, parties party.IDSlice, addresses ma
 		done:           make(chan struct{}),
 	}
 	for _, partyID := range parties {
-		n.listenChannels[partyID] = make(chan *protocol.Message, 1000)
+		n.listenChannels[partyID] = make(chan *protocol.Message, 1000000)
 	}
 	go n.listen(address)
+	// Wait for 3 seconds before connecting to parties
+	time.Sleep(3 * time.Second)
 	go n.connectToParties()
 	return n
 }
@@ -62,6 +64,11 @@ func (n *Network) handleConnection(conn net.Conn) {
 	defer conn.Close() // Ensure the connection is closed when we're done
 
 	scanner := bufio.NewScanner(conn)
+
+	// Increase the buffer size
+	buf := make([]byte, 0, 64*1024) // 64KB buffer
+	scanner.Buffer(buf, 1024*1024)  // Allow up to 1MB per line
+
 	for scanner.Scan() { // Read messages line by line
 		// Read the incoming JSON data
 		data := scanner.Bytes()
@@ -92,7 +99,7 @@ func (n *Network) handleConnection(conn net.Conn) {
 			}
 		} else if ch, ok := n.listenChannels[msg.To]; ok {
 			// Handle direct messages
-			fmt.Printf("Delivering message to %s: %s\n", msg.To, string(msg.Data))
+			fmt.Printf("Delivering message to %s:\n", msg.To)
 			select {
 			case ch <- &msg:
 				fmt.Printf("Message delivered to %s\n", msg.To)
@@ -230,5 +237,27 @@ func (n *Network) Quit(id party.ID) {
 	if conn, ok := n.connections[id]; ok {
 		conn.Close()
 		delete(n.connections, id)
+	}
+}
+
+// HandlerLoop blocks until the handler has finished. The result of the execution is given by Handler.Result().
+func HandlerLoop(id party.ID, h protocol.Handler, network *Network) {
+	for {
+		select {
+		// outgoing messages
+		case msg, ok := <-h.Listen():
+			fmt.Print("Here we receive a msg from handler\n ", msg)
+			if !ok {
+				//<-network.Done(id)
+				// the channel was closed, indicating that the protocol is done executing.
+				return
+			}
+			go network.Send(msg)
+
+		// incoming messages
+		case msg := <-network.Next(id):
+			fmt.Print("\n Here we receive a msg from network: ", msg)
+			h.Accept(msg)
+		}
 	}
 }
