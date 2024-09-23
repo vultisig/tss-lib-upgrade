@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/taurusgroup/multi-party-sig/pkg/ecdsa"
 	"github.com/taurusgroup/multi-party-sig/pkg/math/curve"
@@ -45,11 +46,21 @@ func main() {
 
 	net := network.NewNetwork(id, address, parties, addresses)
 
+	var input string
+	for {
+		fmt.Print("Type 'start' when everyone is connected: ")
+		fmt.Scanln(&input)
+		if input == "start" {
+			break
+		}
+	}
+	go net.ConnectToParties()
+
 	fmt.Printf("Joined the network as %s\n", id)
 	fmt.Println("Type 'quit' to exit")
 	fmt.Println("Enter messages in the format: recipient message")
 
-	ids := party.IDSlice{"Alice", "Bob", "Charlie"}
+	ids := party.IDSlice{"singapore", "nyc", "london"}
 	threshold := 2
 	messageToSign := []byte("hello")
 
@@ -69,29 +80,44 @@ func main() {
 func All(id party.ID, ids party.IDSlice, threshold int, message []byte, n *network.Network, wg *sync.WaitGroup, pl *pool.Pool) error {
 
 	fmt.Println("Starting CMP Keygen")
+	startKeygen := time.Now()
 	// CMP KEYGEN
 	keygenConfig, err := CMPKeygen(id, ids, threshold, n, pl)
 	if err != nil {
 		return err
 	}
 
+	durationKeygen := time.Since(startKeygen)
+	fmt.Printf("CMP Keygen completed in %s\n", durationKeygen)
 	signers := ids[:threshold+1]
-	if !signers.Contains(id) {
+	/*if !signers.Contains(id) {
+		fmt.Println("signers: ", signers)
+		fmt.Println("ids: ", ids)
+		fmt.Println("id: ", id)
+		fmt.Println("do not contain id")
 		n.Quit(id)
 		return err
-	}
+	}*/
+
+	fmt.Println("Starting CMP PRESIGN")
+	startPresign := time.Now()
 
 	// CMP PRESIGN
 	preSignature, err := CMPPreSign(keygenConfig, signers, n, pl)
 	if err != nil {
 		return err
 	}
+	durationPresign := time.Since(startPresign)
+	fmt.Printf("CMP Presign completed in %s\n", durationPresign)
+	startPresignOnline := time.Now()
 
 	// CMP PRESIGN ONLINE
 	err = CMPPreSignOnline(keygenConfig, preSignature, message, n, pl)
 	if err != nil {
 		return err
 	}
+	durationPresignOnline := time.Since(startPresignOnline)
+	fmt.Printf("CMP Presign Online completed in %s\n", durationPresignOnline)
 	return nil
 }
 

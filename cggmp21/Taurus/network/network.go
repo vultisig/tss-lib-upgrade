@@ -37,8 +37,8 @@ func NewNetwork(id party.ID, address string, parties party.IDSlice, addresses ma
 	}
 	go n.listen(address)
 	// Wait for 3 seconds before connecting to parties
-	time.Sleep(3 * time.Second)
-	go n.connectToParties()
+	//time.Sleep(3 * time.Second)
+	//go n.connectToParties()
 	return n
 }
 
@@ -99,10 +99,10 @@ func (n *Network) handleConnection(conn net.Conn) {
 			}
 		} else if ch, ok := n.listenChannels[msg.To]; ok {
 			// Handle direct messages
-			fmt.Printf("Delivering message to %s:\n", msg.To)
+			//fmt.Printf("Delivering message to %s:\n", msg.To)
 			select {
 			case ch <- &msg:
-				fmt.Printf("Message delivered to %s\n", msg.To)
+				//fmt.Printf("Message delivered to %s\n", msg.To)
 			default:
 				fmt.Printf("Channel full, message to %s dropped\n", msg.To)
 			}
@@ -121,7 +121,7 @@ func (n *Network) handleConnection(conn net.Conn) {
 	}
 }
 
-func (n *Network) connectToParties() {
+func (n *Network) ConnectToParties() {
 	for _, p := range n.parties {
 		if p == n.id {
 			continue
@@ -161,26 +161,6 @@ func (n *Network) Next(id party.ID) <-chan *protocol.Message {
 	return n.listenChannels[id]
 }
 
-/*func (n *Network) Send(msg *protocol.Message) {
-	n.mtx.Lock()
-	//fmt.Print(msg)
-
-	conn, ok := n.connections[msg.To] //continue here : when msg.To is empty, it means send to everyone? See original function.
-	n.mtx.Unlock()
-	if !ok {
-		fmt.Printf("No connection to %s, message dropped\n", msg.To)
-		return
-	}
-	_, err := fmt.Fprintf(conn, "%s:%s:%s\n", msg.From, msg.To, string(msg.Data))
-	if err != nil {
-		fmt.Printf("Error sending message to %s: %v\n", msg.To, err)
-		n.mtx.Lock()
-		delete(n.connections, msg.To)
-		n.mtx.Unlock()
-		go n.connectToParty(msg.To)
-	}
-}*/
-
 func (n *Network) Send(msg *protocol.Message) {
 	n.mtx.Lock()
 	defer n.mtx.Unlock()
@@ -197,7 +177,7 @@ func (n *Network) Send(msg *protocol.Message) {
 			}
 
 			// Send the serialized message
-			fmt.Printf("Sending message to %s: \n", id)
+			//fmt.Printf("Sending message to %s: \n", id)
 			fmt.Println(msg.RoundNumber)
 			_, err = conn.Write(append(data, '\n'))
 			if err != nil {
@@ -246,7 +226,7 @@ func HandlerLoop(id party.ID, h protocol.Handler, network *Network) {
 		select {
 		// outgoing messages
 		case msg, ok := <-h.Listen():
-			fmt.Print("Here we receive a msg from handler\n ", msg)
+			//fmt.Print("Here we receive a msg from handler\n ", msg)
 			if !ok {
 				//<-network.Done(id)
 				// the channel was closed, indicating that the protocol is done executing.
@@ -256,7 +236,7 @@ func HandlerLoop(id party.ID, h protocol.Handler, network *Network) {
 
 		// incoming messages
 		case msg := <-network.Next(id):
-			fmt.Print("\n Here we receive a msg from network: ", msg)
+			//fmt.Print("\n Here we receive a msg from network: ", msg)
 			h.Accept(msg)
 		}
 	}
