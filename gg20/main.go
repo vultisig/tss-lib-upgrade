@@ -1,96 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/big"
-	"time"
+	"sync"
+	"sync/atomic"
 
-	"github.com/binance-chain/tss-lib/ecdsa/keygen"
-	"github.com/binance-chain/tss-lib/tss"
+	"github.com/bnb-chain/tss-lib/v2/tss"
 )
 
 func main() {
-	// Set up parameters
-	threshold := 2
-	participants := 3
-
-	// Create party IDs
-	var partyIDs tss.SortedPartyIDs
-	for i := 0; i < participants; i++ {
-		partyIDs = append(partyIDs, tss.NewPartyID(fmt.Sprintf("%d", i), "", big.NewInt(int64(i))))
-	}
-
-	// Set up parameters for key generation
-	params := tss.NewParameters(tss.Edwards(), partyIDs, threshold, participants)
-
-	// Create channels for communication
-	outCh := make(chan tss.Message, participants)
-	endCh := make(chan keygen.LocalPartySaveData, participants)
-
-	// Start local parties
-	parties := make([]*keygen.LocalParty, 0, participants)
-	for i := 0; i < participants; i++ {
-		P := keygen.NewLocalParty(params, outCh, endCh).(*keygen.LocalParty)
-		parties = append(parties, P)
-		go func(P *keygen.LocalParty) {
-			if err := P.Start(); err != nil {
-				fmt.Printf("Error starting party: %v\n", err)
-			}
-		}(P)
-	}
-
-	// Simulate message passing between parties
-	go func() {
-		for msg := range outCh {
-			dest := msg.GetTo()
-			if dest == nil {
-				for _, P := range parties {
-					if P.PartyID().Index != msg.GetFrom().Index {
-						P.UpdateFromBytes(msg.GetWire(), msg.GetFrom(), msg.IsBroadcast())
-					}
-				}
-			} else {
-				for _, P := range parties {
-					if P.PartyID().Index == dest[0].Index {
-						P.UpdateFromBytes(msg.GetWire(), msg.GetFrom(), msg.IsBroadcast())
-						break
-					}
-				}
-			}
-		}
-	}()
-
-	// Wait for key generation to complete
-	keygenData := make([]keygen.LocalPartySaveData, 0, participants)
-	timeout := make(chan bool, 1)
-	go func() {
-		time.Sleep(30 * time.Second)
-		timeout <- true
-	}()
-
-	for {
-		select {
-		case save := <-endCh:
-			keygenData = append(keygenData, save)
-			if len(keygenData) == participants {
-				fmt.Println("Key generation completed successfully!")
-				for i, save := range keygenData {
-					fmt.Printf("Party %d public key: %x\n", i, save.ECDSAPub.X())
-				}
-				return
-			}
-		case <-timeout:
-			fmt.Println("Key generation timed out")
-			return
-		}
-	}
-}
-
-func main() {
 	allParties := []*party{
-		NewParty(1, logger("pA", t.Name())),
-		NewParty(2, logger("pB", t.Name())),
-		NewParty(3, logger("pC", t.Name())),
+		NewParty(1),
+		NewParty(2),
+		NewParty(3),
 	}
 
 	/*benchmarks := []struct {
@@ -103,37 +27,139 @@ func main() {
 
 	numParties := 3
 	threshold := 2
-	numRuns := 1
 
-	for i := 0; i < numRuns; i++ {
-		parties := parties(allParties[:numParties])
+	parties := parties(allParties[:numParties])
 
-		parties.init(senders(parties), threshold)
+	parties.init(senders(parties), threshold)
 
-		// DKG
-		shares, err := parties.keygen()
-		//assert.NoError(t, err)
+	// DKG
+	shares, _ := parties.keygen()
 
-		parties.init(senders(parties), threshold)
-		parties.setShareData(shares)
+	parties.init(senders(parties), threshold)
+	parties.setShareData(shares)
 
-		// Signing
-		msgToSign := []byte("bla bla")
-		sigs, err := parties.sign(digest(msgToSign))
-		//assert.NoError(t, err)
+	// Signing
+	msgToSign := []byte("bla bla")
+	sigs, _ := parties.sign(digest(msgToSign))
 
-		// Verification (only done once per benchmark for simplicity)
-		if i == 0 {
-			sigSet := make(map[string]struct{})
-			for _, s := range sigs {
-				sigSet[string(s)] = struct{}{}
-			}
-			//assert.Len(t, sigSet, 1)
-
-			parties[0].TPubKey()
-			//assert.NoError(t, err)
-			//assert.True(t, ecdsa.VerifyASN1(pk, digest(msgToSign), sigs[0]))
-		}
+	// Verification
+	sigSet := make(map[string]struct{})
+	for _, s := range sigs {
+		sigSet[string(s)] = struct{}{}
 	}
 
+	parties[0].TPubKey()
+}
+
+func (parties parties) init(senders []Sender, threshold int) {
+	for i, p := range parties {
+		p.Init(parties.numericIDs(), threshold, senders[i])
+	}
+}
+
+func (parties parties) setShareData(shareData [][]byte) {
+	for i, p := range parties {
+		p.SetShareData(shareData[i])
+	}
+}
+
+func (parties parties) sign(msg []byte) ([][]byte, error) {
+	var lock sync.Mutex
+	var sigs [][]byte
+	var threadSafeError atomic.Value
+
+	var wg sync.WaitGroup
+	wg.Add(len(parties))
+
+	for _, p := range parties {
+		go func(p *party) {
+			defer wg.Done()
+			sig, err := p.Sign(context.Background(), msg)
+			if err != nil {
+				threadSafeError.Store(err.Error())
+				return
+			}
+
+			lock.Lock()
+			sigs = append(sigs, sig)
+			lock.Unlock()
+		}(p)
+	}
+
+	wg.Wait()
+
+	err := threadSafeError.Load()
+	if err != nil {
+		return nil, fmt.Errorf(err.(string))
+	}
+
+	return sigs, nil
+}
+
+func (parties parties) keygen() ([][]byte, error) {
+	var lock sync.Mutex
+	shares := make([][]byte, len(parties))
+	var threadSafeError atomic.Value
+
+	var wg sync.WaitGroup
+	wg.Add(len(parties))
+
+	for i, p := range parties {
+		go func(p *party, i int) {
+			defer wg.Done()
+			share, err := p.KeyGen(context.Background())
+			if err != nil {
+				threadSafeError.Store(err.Error())
+				return
+			}
+
+			lock.Lock()
+			shares[i] = share
+			lock.Unlock()
+		}(p, i)
+	}
+
+	wg.Wait()
+
+	err := threadSafeError.Load()
+	if err != nil {
+		return nil, fmt.Errorf(err.(string))
+	}
+
+	return shares, nil
+}
+
+func (parties parties) Mapping() map[string]*tss.PartyID {
+	partyIDMap := make(map[string]*tss.PartyID)
+	for _, id := range parties {
+		partyIDMap[id.id.Id] = id.id
+	}
+	return partyIDMap
+}
+
+func senders(parties parties) []Sender {
+	var senders []Sender
+	for _, src := range parties {
+		src := src
+		sender := func(msgBytes []byte, broadcast bool, to uint16) {
+			messageSource := uint16(big.NewInt(0).SetBytes(src.id.Key).Uint64())
+			if broadcast {
+				for _, dst := range parties {
+					if dst.id == src.id {
+						continue
+					}
+					dst.OnMsg(msgBytes, messageSource, broadcast)
+				}
+			} else {
+				for _, dst := range parties {
+					if to != uint16(big.NewInt(0).SetBytes(dst.id.Key).Uint64()) {
+						continue
+					}
+					dst.OnMsg(msgBytes, messageSource, broadcast)
+				}
+			}
+		}
+		senders = append(senders, sender)
+	}
+	return senders
 }

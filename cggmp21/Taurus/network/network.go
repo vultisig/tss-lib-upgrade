@@ -73,6 +73,7 @@ func (n *Network) handleConnection(conn net.Conn) {
 		// Read the incoming JSON data
 		data := scanner.Bytes()
 		//fmt.Printf(" \n Received raw data \n")
+		fmt.Printf("Received raw data: %s\n", string(data))
 
 		// Deserialize the message
 		var msg protocol.Message
@@ -226,7 +227,7 @@ func HandlerLoop(id party.ID, h protocol.Handler, network *Network) {
 		select {
 		// outgoing messages
 		case msg, ok := <-h.Listen():
-			//fmt.Print("Here we receive a msg from handler\n ", msg)
+			fmt.Print("Here we receive a msg from handler\n ", ok)
 			if !ok {
 				//<-network.Done(id)
 				// the channel was closed, indicating that the protocol is done executing.
@@ -236,7 +237,7 @@ func HandlerLoop(id party.ID, h protocol.Handler, network *Network) {
 
 		// incoming messages
 		case msg := <-network.Next(id):
-			//fmt.Print("\n Here we receive a msg from network: ", msg)
+			fmt.Print("\n Here we receive a msg from network: ", msg)
 			h.Accept(msg)
 		}
 	}
