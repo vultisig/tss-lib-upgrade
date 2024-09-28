@@ -1,20 +1,20 @@
 #!/bin/bash
 
 declare -A droplets=(
-    ["178.128.171.139"]="benchmark-london-03"
-    ["157.245.152.187"]="benchmark-singapore-05"
-    ["157.245.247.39"]="benchmark-nyc-01"
+    ["159.65.210.93"]="benchmark-london-01"
+    ["143.244.203.153"]="benchmark-nyc-01"
+    ["146.190.202.249"]="benchmark-singapore-01"
 )
 
 THRESHOLD=2
-PORT=8080
+PORT=54321
 
 run_on_droplet() {
     local ip=$1
     local id=${droplets[$ip]}
     
     local cleanup_command="pkill main; pkill go; sleep 2; fuser -k $PORT/tcp"
-    local ssh_command="cd ~/Taurus && go run main.go $THRESHOLD $id $ip:$PORT"
+    local ssh_command="cd ~/Taurus && go run main.go $THRESHOLD $id 0.0.0.0:$PORT"
     
     # Add all droplets to the command
     for droplet_ip in "${!droplets[@]}"; do

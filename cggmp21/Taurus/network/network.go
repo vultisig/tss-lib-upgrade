@@ -73,7 +73,7 @@ func (n *Network) handleConnection(conn net.Conn) {
 		// Read the incoming JSON data
 		data := scanner.Bytes()
 		//fmt.Printf(" \n Received raw data \n")
-		fmt.Printf("Received raw data: %s\n", string(data))
+		//fmt.Printf("Received raw data: %s\n", string(data))
 
 		// Deserialize the message
 		var msg protocol.Message
@@ -157,7 +157,7 @@ func (n *Network) Next(id party.ID) <-chan *protocol.Message {
 	defer n.mtx.Unlock()
 	if _, ok := n.listenChannels[id]; !ok {
 		fmt.Printf("Creating listen channel for %s\n", id)
-		n.listenChannels[id] = make(chan *protocol.Message, 100)
+		n.listenChannels[id] = make(chan *protocol.Message, 1000)
 	}
 	return n.listenChannels[id]
 }
@@ -167,6 +167,8 @@ func (n *Network) Send(msg *protocol.Message) {
 	defer n.mtx.Unlock()
 	//fmt.Println("\n Sending message \n", msg)
 	//fmt.Println(msg.RoundNumber)
+
+	fmt.Println("\n Sending message", msg)
 
 	for id, conn := range n.connections {
 		if msg.IsFor(id) && conn != nil {
@@ -179,7 +181,8 @@ func (n *Network) Send(msg *protocol.Message) {
 
 			// Send the serialized message
 			//fmt.Printf("Sending message to %s: \n", id)
-			fmt.Println(msg.RoundNumber)
+
+			//fmt.Println(msg.RoundNumber)
 			_, err = conn.Write(append(data, '\n'))
 			if err != nil {
 				fmt.Printf("Error sending message to %s: %v\n", id, err)
@@ -224,12 +227,14 @@ func (n *Network) Quit(id party.ID) {
 // HandlerLoop blocks until the handler has finished. The result of the execution is given by Handler.Result().
 func HandlerLoop(id party.ID, h protocol.Handler, network *Network) {
 	for {
+		fmt.Printf("\n[Party %s] About to enter select statement", id)
 		select {
 		// outgoing messages
 		case msg, ok := <-h.Listen():
-			fmt.Print("Here we receive a msg from handler\n ", ok)
+			fmt.Print("\n Here we receive a msg from handler ", msg)
 			if !ok {
 				//<-network.Done(id)
+				fmt.Print("\n CHANNEL CLOSED ", msg)
 				// the channel was closed, indicating that the protocol is done executing.
 				return
 			}
@@ -239,6 +244,12 @@ func HandlerLoop(id party.ID, h protocol.Handler, network *Network) {
 		case msg := <-network.Next(id):
 			fmt.Print("\n Here we receive a msg from network: ", msg)
 			h.Accept(msg)
+			fmt.Print("\n Msg accepted from network to handler: ", msg)
+
+		default:
+			//fmt.Printf("[Party %s] No messages available, sleeping for 1 second\n", id)
+			//time.Sleep(1 * time.Second)
 		}
+		fmt.Printf("\n[Party %s] Exited select statement", id)
 	}
 }

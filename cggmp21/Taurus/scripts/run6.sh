@@ -1,29 +1,27 @@
 #!/bin/bash
 
 declare -A droplets=(
-    ["178.128.171.139"]="benchmark-london-03"
-    ["206.189.28.56"]="benchmark-london-01"
-    ["178.128.169.97"]="benchmark-london-06"
-    ["178.128.171.173"]="benchmark-london-05"
-    ["178.128.169.240"]="benchmark-london-02"
-    ["206.189.16.185"]="benchmark-london-04"
-    ["157.245.152.187"]="benchmark-singapore-05"
-    ["167.71.212.71"]="benchmark-singapore-06"
+    ["159.65.210.93"]="benchmark-london-01"
+    ["159.65.209.59"]="benchmark-london-02"
+    ["143.244.203.153"]="benchmark-nyc-01"
+    ["146.190.197.105"]="benchmark-nyc-02"
+    ["146.190.202.249"]="benchmark-singapore-01"
+    ["188.166.205.11"]="benchmark-singapore-02"
 )
 
-THRESHOLD=4
+THRESHOLD=5
 
 run_on_droplet() {
     local ip=$1
     local id=${droplets[$ip]}
     
-    local cleanup_command="pkill main; pkill go; sleep 2; fuser -k 8080/tcp"
-    local ssh_command="cd ~/Taurus && go run main.go $THRESHOLD $id $ip:8080"
+    local cleanup_command="pkill main; pkill go; sleep 2; fuser -k 54321/tcp"
+    local ssh_command="cd ~/Taurus && go run main.go $THRESHOLD $id 0.0.0.0:54321"
     
     # Add all droplets to the command
     for droplet_ip in "${!droplets[@]}"; do
         local droplet_id=${droplets[$droplet_ip]}
-        ssh_command+=" $droplet_id:$droplet_ip:8080"
+        ssh_command+=" $droplet_id:$droplet_ip:54321"
     done
     
     echo "Running on $id ($ip):"
