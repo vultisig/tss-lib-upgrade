@@ -6,7 +6,9 @@ import (
 	"math/big"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	ecdsaKeygen "github.com/bnb-chain/tss-lib/v2/ecdsa/keygen"
 	"github.com/bnb-chain/tss-lib/v2/tss"
 )
 
@@ -25,15 +27,65 @@ func main() {
 		{2, 6}, {3, 6}, {4, 6}, {5, 6}, {2, 7},{11, 17}, {11, 20}, {12, 20}, {13, 20}, {14, 20}
 	}*/
 
+	msg := &MessengerImp{
+		Server:    input.Server,
+		SessionID: input.Session,
+	}
+
+	type ServiceImpl struct {
+		preParams        *ecdsaKeygen.LocalPreParams
+		messenger        Messenger
+		stateAccessor    LocalStateAccessor
+		inboundMessageCh chan string
+		resharePrefix    string
+	}
+
+	serviceImp := &ServiceImpl{
+		messenger:        msg,
+		stateAccessor:    stateAccessor,
+		inboundMessageCh: make(chan string),
+	}
+
+	if createPreParam {
+		preParams, err := ecdsaKeygen.GeneratePreParams(10 * time.Minute)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate pre-parameters: %w", err)
+		}
+		serviceImp.preParams = preParams
+	}
+
 	numParties := 3
 	threshold := 2
-
-	parties := parties(allParties[:numParties])
 
 	parties.init(senders(parties), threshold)
 
 	// DKG
 	shares, _ := parties.keygen()
+
+	var lock sync.Mutex
+	var threadSafeError atomic.Value
+
+	var wg sync.WaitGroup
+	wg.Add(len(parties))
+
+	go func(p *party, i int) {
+		defer wg.Done()
+		share, err := p.KeyGen(context.Background())
+		if err != nil {
+			threadSafeError.Store(err.Error())
+			return
+		}
+
+		lock.Lock()
+		lock.Unlock()
+	}()
+
+	wg.Wait()
+
+	err := threadSafeError.Load()
+	if err != nil {
+		return nil, fmt.Errorf(err.(string))
+	}
 
 	parties.init(senders(parties), threshold)
 	parties.setShareData(shares)
